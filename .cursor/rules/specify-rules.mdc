@@ -1,0 +1,32 @@
+# YaDiskAutomator Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2025-11-12
+
+## Active Technologies
+- Python 3.11+ + `playwright` (browser automation for parsing public folders recursively), `requests` (HTTP library for downloads/uploads and API calls), `python-dotenv` (loading configuration from .env file) (001-ydisk-video-download)
+- N/A (temporary local storage during download, then upload to Yandex Disk) (001-ydisk-video-download)
+
+- Python 3.11+ + `requests` (HTTP library for API calls and file operations) (001-ydisk-video-download)
+
+## Project Structure
+
+```text
+src/
+tests/
+```
+
+## Commands
+
+cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] pytest [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] ruff check .
+
+## Code Style
+
+Python 3.11+: Follow standard conventions
+
+## Recent Changes
+- 001-ydisk-video-download: Added Python 3.11+ + `playwright` (browser automation for parsing public folders recursively), `requests` (HTTP library for downloads/uploads and API calls), `python-dotenv` (loading configuration from .env file)
+
+- 001-ydisk-video-download: Added Python 3.11+ + `requests` (HTTP library for API calls and file operations)
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->
