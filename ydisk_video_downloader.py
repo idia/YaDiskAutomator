@@ -1156,21 +1156,66 @@ def process_videos_sequentially(page, folder_url: str, folder_path: str, verbose
         for selector in selectors:
             try:
                 elements = page.query_selector_all(selector)
+                if verbose:
+                    print(f"    DEBUG: Selector '{selector}' found {len(elements)} elements")
                 all_elements.extend(elements)
-            except:
+            except Exception as e:
+                if verbose:
+                    print(f"    DEBUG: Selector '{selector}' failed: {e}")
                 continue
-        return all_elements
+        # Remove duplicates by tracking file names (more reliable than element handles)
+        unique_elements = []
+        seen_names = set()
+        for element in all_elements:
+            try:
+                # Try to get name to check for duplicates
+                name = (element.get_attribute('data-file-name') or 
+                       element.get_attribute('data-resource-name') or
+                       element.get_attribute('data-name') or
+                       element.get_attribute('title') or
+                       element.get_attribute('aria-label') or
+                       element.inner_text() or
+                       element.text_content())
+                
+                if name:
+                    # Clean name: remove newlines and carriage returns, normalize whitespace
+                    name = name.replace('\n', '').replace('\r', '').strip()
+                    name = re.sub(r'\s+', ' ', name)
+                    if name in seen_names:
+                        if verbose:
+                            print(f"    DEBUG: Skipping duplicate element for file: {name}")
+                        continue
+                    seen_names.add(name)
+                
+                unique_elements.append(element)
+            except:
+                # If we can't get name, just add it anyway (might be a folder or other element)
+                unique_elements.append(element)
+        if verbose:
+            print(f"    DEBUG: Total unique elements after deduplication: {len(unique_elements)}")
+        return unique_elements
     
     # Process videos one by one
     processed_count = 0
+    processed_in_session = set()  # Track files processed in this session to avoid duplicates
+    
     while True:
         # Get current list of elements
         all_elements = get_elements()
+        
+        if verbose:
+            print(f"    DEBUG: Found {len(all_elements)} total elements")
         
         # Find first video file that hasn't been processed
         video_element = None
         video_name = None
         video_href = None
+        
+        video_files_found = 0
+        skipped_already_downloaded = 0
+        skipped_in_session = 0
+        skipped_not_video = 0
+        all_file_names = []  # Track all file names for debugging
         
         for element in all_elements:
             try:
@@ -1186,30 +1231,67 @@ def process_videos_sequentially(page, folder_url: str, folder_path: str, verbose
                 if not name:
                     continue
                 
-                # Check if it's a video file
-                if not any(name.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
+                # Clean name: remove newlines and carriage returns, normalize whitespace
+                name = name.replace('\n', '').replace('\r', '').strip()
+                # Replace multiple spaces with single space
+                name = re.sub(r'\s+', ' ', name)
+                
+                all_file_names.append(name)
+                
+                # Check if it's a video file (after cleaning)
+                name_normalized = name.lower().strip()
+                if not any(name_normalized.endswith(ext) for ext in VIDEO_EXTENSIONS):
+                    skipped_not_video += 1
+                    if verbose:
+                        print(f"    DEBUG: Non-video file: {name}")
                     continue
+                
+                video_files_found += 1
                 
                 # Build relative path
                 relative_path = f"{folder_path}/{name}".lstrip('/')
+                
+                if verbose:
+                    print(f"    DEBUG: Found video file: {relative_path}")
+                
+                # Skip if already processed in this session
+                if relative_path in processed_in_session:
+                    if verbose:
+                        print(f"    Skipping {relative_path} - already processed in this session")
+                    skipped_in_session += 1
+                    continue
                 
                 # Check if already fully downloaded - if yes, skip this one and continue to next
                 is_fully_downloaded, _ = is_file_downloaded(relative_path, tree_file_path)
                 if is_fully_downloaded:
                     if verbose:
                         print(f"    Skipping {relative_path} - already fully downloaded")
-                    # Continue to next element, don't break
+                    # Mark as processed in session to avoid checking again
+                    processed_in_session.add(relative_path)
+                    skipped_already_downloaded += 1
                     continue
                 
-                # Found a video to process (not fully downloaded)
+                # Found a video to process (not fully downloaded and not processed in session)
                 video_element = element
                 video_name = name
+                if verbose:
+                    print(f"    DEBUG: Selected video for processing: {relative_path}")
                 break
                 
             except Exception as e:
                 if verbose:
                     print(f"    Warning: Error checking element: {e}")
                 continue
+        
+        if verbose:
+            print(f"    DEBUG: All file names found: {all_file_names}")
+        
+        if verbose:
+            print(f"    DEBUG: Summary - Total elements: {len(all_elements)}, "
+                  f"Video files: {video_files_found}, "
+                  f"Skipped (already downloaded): {skipped_already_downloaded}, "
+                  f"Skipped (in session): {skipped_in_session}, "
+                  f"Skipped (not video): {skipped_not_video}")
         
         # If no video found, we're done
         if not video_element or not video_name:
@@ -1220,17 +1302,24 @@ def process_videos_sequentially(page, folder_url: str, folder_path: str, verbose
         relative_path = f"{folder_path}/{video_name}".lstrip('/')
         
         if verbose:
-            print(f"\n  Processing video {processed_count + 1}: {relative_path}")
+            print(f"\n  Found video {processed_count + 1}: {relative_path}")
         
-        # Ensure file is in tree.md (add if not present)
+        # CRITICAL: Add file to tree.md IMMEDIATELY after finding it (before download)
         try:
             with open(tree_file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
             # Check if file is already in tree.md
-            if relative_path not in content:
+            file_pattern = rf'- \[[px ]\] `{re.escape(relative_path)}`'
+            file_found_in_tree = re.search(file_pattern, content)
+            
+            if verbose:
+                print(f"    DEBUG: Checking if {relative_path} is in tree.md...")
+                print(f"    DEBUG: File pattern: {file_pattern}")
+                print(f"    DEBUG: File found in tree.md: {file_found_in_tree is not None}")
+            
+            if not file_found_in_tree:
                 # Add file to tree.md
-                import re
                 # Find the "## Файлы" section
                 files_section_match = re.search(r'## Файлы\n\n', content)
                 if files_section_match:
@@ -1241,10 +1330,27 @@ def process_videos_sequentially(page, folder_url: str, folder_path: str, verbose
                     with open(tree_file_path, 'w', encoding='utf-8') as f:
                         f.write(content)
                     if verbose:
-                        print(f"    Added {relative_path} to tree.md")
+                        print(f"    ✓ Added {relative_path} to tree.md")
+                else:
+                    # If "## Файлы" section doesn't exist, add it
+                    content += "\n## Файлы\n\n"
+                    content += f"- [ ] `{relative_path}`\n"
+                    with open(tree_file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    if verbose:
+                        print(f"    ✓ Added {relative_path} to tree.md (created Файлы section)")
+            else:
+                if verbose:
+                    print(f"    DEBUG: {relative_path} already exists in tree.md, skipping addition")
         except Exception as e:
-            if verbose:
-                print(f"    Warning: Could not update tree.md: {e}")
+            print(f"ERROR: Could not add {relative_path} to tree.md: {e}")
+            raise Exception(f"Failed to add file to tree.md: {e}. Script execution stopped.")
+        
+        # Mark as being processed in this session
+        processed_in_session.add(relative_path)
+        
+        if verbose:
+            print(f"  Processing video {processed_count + 1}: {relative_path}")
         
         # Get download URL for this video
         try:
@@ -1400,15 +1506,30 @@ def process_videos_sequentially(page, folder_url: str, folder_path: str, verbose
                 except Exception as e:
                     if verbose:
                         print(f"    Warning: Could not delete local file: {e}")
+                
+                # Mark as fully processed - this ensures it won't be processed again
+                # The file is already marked as [x] in tree.md by mark_file_downloaded
+                # But we also mark it in session to be sure
+                processed_in_session.add(relative_path)
             else:
                 if verbose:
                     print(f"    Note: Upload skipped (no destination_path or oauth_token)")
+                # Even if upload skipped, mark as processed if download was successful
+                processed_in_session.add(relative_path)
             
             processed_count += 1
             
-            # After successful processing, wait a bit and re-query elements
-            # This ensures we get fresh list for next iteration
+            # After successful processing, wait a bit before next iteration
+            # This ensures tree.md is updated and we can find next file
             page.wait_for_timeout(1000)
+            
+            # Verify file is marked as downloaded in tree.md
+            is_fully_downloaded_after, _ = is_file_downloaded(relative_path, tree_file_path)
+            if verbose:
+                if is_fully_downloaded_after:
+                    print(f"    ✓ Verified: {relative_path} is marked as [x] in tree.md")
+                else:
+                    print(f"    Warning: {relative_path} is not marked as [x] in tree.md after processing")
             
         except Exception as e:
             print(f"ERROR: Failed to process {relative_path if 'relative_path' in locals() else 'video'}: {e}")
