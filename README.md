@@ -24,7 +24,6 @@ Python script to automatically download all videos from a public Yandex Disk fol
 1. Install dependencies:
 ```bash
 pip install -r requirements.txt
-playwright install chromium
 ```
 
 **Note**: The script uses `yt-dlp` for downloading streaming videos. Make sure it's installed along with `ffmpeg` (required by yt-dlp for some formats):
