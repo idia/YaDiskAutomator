@@ -857,6 +857,14 @@ def parse_folder_contents(page, folder_url: str, folder_path: str, verbose: bool
                                 if verbose:
                                     print(f"    Breaking out of Strategy 7, href = {href[:100] if href else 'None'}...")
                                     print(f"    Name preserved: {name}")
+                                
+                                # Store variables in outer scope before break
+                                # This ensures they're available after break even if context is destroyed
+                                if 'saved_href' in locals():
+                                    href = saved_href
+                                if 'saved_name_for_item' in locals():
+                                    name = saved_name_for_item
+                                
                                 break
                             elif verbose:
                                 print(f"    No video URL captured after click (video_urls: {len(video_urls)}, response_urls: {len(response_urls)})")
@@ -875,134 +883,165 @@ def parse_folder_contents(page, folder_url: str, folder_path: str, verbose: bool
                                 print(f"    Warning: Could not click element for {name}: {click_error}")
                     except Exception as e:
                         if verbose:
-                            print(f"    Warning: Could not get link for {name}: {e}")
-                
-                # After Strategy 7: check if we have href and name
-                if verbose:
-                    print(f"    After Strategy 7: href = {href[:100] if href else 'None'}, name = {name if 'name' in locals() else 'NOT DEFINED'}")
-                
-                if not href:
-                    if verbose:
-                        print(f"    ERROR: No download URL found for {name if 'name' in locals() else 'UNKNOWN'}")
-                        print(f"    Stopping execution: cannot proceed without download URL")
-                    raise Exception(f"Cannot find download URL for {name if 'name' in locals() else 'UNKNOWN'}. Script execution stopped.")
-                
-                if verbose:
-                    print(f"    Processing href for {name}: {href[:100] if href else 'None'}...")
-                
-                # Construct full URL
-                if href.startswith('/'):
-                    if 'disk.yandex.ru' in folder_url or 'disk.yandex.ru' in href:
-                        full_url = f"https://disk.yandex.ru{href}"
-                    else:
-                        full_url = f"https://yadi.sk{href}"
-                elif href.startswith('http'):
-                    full_url = href
-                else:
-                    if verbose:
-                        print(f"    Warning: Invalid href format for {name}, skipping...")
-                    continue
-                
-                # Build relative path
-                relative_path = f"{folder_path}/{name}"
-                
-                # If download_immediately is True, download and upload immediately
-                if download_immediately and cache_dir and tree_file_path:
-                    try:
-                        # Build local path
-                        path_parts = [part.strip().replace('\n', ' ').replace('\r', ' ') 
-                                     for part in relative_path.split('/') if part.strip()]
-                        sanitized_parts = [sanitize_folder_name(part) if i < len(path_parts) - 1 
-                                          else sanitize_filename(part) 
-                                          for i, part in enumerate(path_parts)]
-                        
-                        if len(path_parts) > 1:
-                            folder_parts = sanitized_parts[:-1]
-                            local_folder_path = os.path.join(cache_dir, *folder_parts)
-                            os.makedirs(local_folder_path, exist_ok=True)
-                        
-                        local_path = os.path.join(cache_dir, *sanitized_parts)
-                        
-                        # Check if already downloaded
-                        is_fully_downloaded, is_partially_downloaded = is_file_downloaded(
-                            relative_path, tree_file_path)
-                        
-                        if is_fully_downloaded:
-                            if verbose:
-                                print(f"    Skipping {relative_path} - already fully downloaded")
-                            continue
-                        
-                        # Download video
-                        if not is_partially_downloaded or not os.path.exists(local_path):
-                            if verbose:
-                                print(f"\n    Downloading {relative_path} immediately...")
-                            if not download_video(full_url, local_path, verbose, page):
-                                print(f"ERROR: Failed to download {relative_path}")
-                                raise Exception(f"Download failed for {relative_path}. Script execution stopped.")
-                            
-                            mark_file_partially_downloaded(relative_path, tree_file_path, verbose)
-                            if verbose:
-                                print(f"    ✓ Downloaded: {relative_path}")
-                        
-                        # Upload to Yandex Disk if destination_path and oauth_token provided
-                        if destination_path and oauth_token:
-                            clean_relative_path = relative_path.lstrip('/')
-                            if destination_path.endswith('/'):
-                                full_destination = f"{destination_path}{clean_relative_path}"
-                            else:
-                                full_destination = f"{destination_path}/{clean_relative_path}"
-                            
-                            if verbose:
-                                print(f"    Uploading {relative_path} to {full_destination}...")
-                            
-                            # Create folder structure
-                            if len(path_parts) > 1:
-                                folder_path_for_upload = '/'.join(path_parts[:-1])
-                                folder_path_for_upload = folder_path_for_upload.lstrip('/')
-                                create_folder_structure(destination_path, folder_path_for_upload, 
-                                                       oauth_token, verbose)
-                            
-                            if not upload_to_yandex_disk(local_path, full_destination, oauth_token, 
-                                                       verbose, use_web_interface=False, page=page):
-                                print(f"ERROR: Failed to upload {relative_path}")
-                                raise Exception(f"Upload failed for {relative_path}. Script execution stopped.")
-                            
-                            mark_file_downloaded(relative_path, tree_file_path, verbose)
-                            if verbose:
-                                print(f"    ✓ Uploaded: {relative_path}")
-                            
-                            # Delete local file after successful upload
                             try:
-                                os.remove(local_path)
-                                if verbose:
-                                    print(f"    Deleted local file: {local_path}")
-                            except Exception as e:
-                                if verbose:
-                                    print(f"    Warning: Could not delete local file: {e}")
+                                name_for_error = name if 'name' in locals() and name else 'UNKNOWN'
+                                print(f"    Warning: Could not get link for {name_for_error}: {e}")
+                            except:
+                                print(f"    Warning: Could not get link: {e}")
+                
+                # After Strategy 7: check if we have href
+                # CRITICAL: Check download_immediately FIRST, before using name variable
+                # This prevents exceptions from skipping the download block
+                if verbose:
+                    print(f"    DEBUG: After Strategy 7 block, checking href...")
+                    print(f"    DEBUG: href exists: {'href' in locals()}")
+                    print(f"    DEBUG: href value: {href[:100] if 'href' in locals() and href else 'None'}")
+                
+                if 'href' in locals() and href:
+                    # Restore name from saved_name if it was lost
+                    if 'name' not in locals() or not name:
+                        if 'saved_name' in locals() and saved_name:
+                            name = saved_name
+                            if verbose:
+                                print(f"    Restored name from saved_name: {name}")
+                    
+                    if verbose:
+                        try:
+                            print(f"    After Strategy 7: href = {href[:100] if href else 'None'}, name = {name if 'name' in locals() and name else 'NOT DEFINED'}")
+                            print(f"    download_immediately = {download_immediately if 'download_immediately' in locals() else 'NOT DEFINED'}")
+                            print(f"    cache_dir = {cache_dir if 'cache_dir' in locals() and cache_dir else 'None'}")
+                            print(f"    tree_file_path = {tree_file_path if 'tree_file_path' in locals() and tree_file_path else 'None'}")
+                        except Exception as debug_error:
+                            print(f"    Warning: Error in debug output: {debug_error}")
+                    
+                    # Construct full URL first (before using name)
+                    if href.startswith('/'):
+                        if 'disk.yandex.ru' in folder_url or 'disk.yandex.ru' in href:
+                            full_url = f"https://disk.yandex.ru{href}"
+                        else:
+                            full_url = f"https://yadi.sk{href}"
+                    elif href.startswith('http'):
+                        full_url = href
+                    else:
+                        if verbose:
+                            print(f"    Warning: Invalid href format, skipping...")
+                        continue
+                    
+                    # Build relative path (use saved_name if name is not available)
+                    if 'name' not in locals() or not name:
+                        if 'saved_name' in locals() and saved_name:
+                            name = saved_name
                         else:
                             if verbose:
-                                print(f"    Note: Upload skipped (no destination_path or oauth_token)")
-                        
-                        # Continue to next file (don't add to items list)
-                        continue
-                    except Exception as download_error:
-                        print(f"ERROR: Failed to process {relative_path}: {download_error}")
-                        raise  # Re-raise to stop execution
+                                print(f"    ERROR: Cannot determine file name")
+                            raise Exception("Cannot determine file name. Script execution stopped.")
+                    
+                    relative_path = f"{folder_path}/{name}"
+                    
+                    # If download_immediately is True, download and upload immediately
+                    if download_immediately and cache_dir and tree_file_path:
+                        try:
+                            # Build local path
+                            path_parts = [part.strip().replace('\n', ' ').replace('\r', ' ') 
+                                         for part in relative_path.split('/') if part.strip()]
+                            sanitized_parts = [sanitize_folder_name(part) if i < len(path_parts) - 1 
+                                              else sanitize_filename(part) 
+                                              for i, part in enumerate(path_parts)]
+                            
+                            if len(path_parts) > 1:
+                                folder_parts = sanitized_parts[:-1]
+                                local_folder_path = os.path.join(cache_dir, *folder_parts)
+                                os.makedirs(local_folder_path, exist_ok=True)
+                            
+                            local_path = os.path.join(cache_dir, *sanitized_parts)
+                            
+                            # Check if already downloaded
+                            is_fully_downloaded, is_partially_downloaded = is_file_downloaded(
+                                relative_path, tree_file_path)
+                            
+                            if is_fully_downloaded:
+                                if verbose:
+                                    print(f"    Skipping {relative_path} - already fully downloaded")
+                                continue
+                            
+                            # Download video
+                            if not is_partially_downloaded or not os.path.exists(local_path):
+                                if verbose:
+                                    print(f"\n    Downloading {relative_path} immediately...")
+                                if not download_video(full_url, local_path, verbose, page):
+                                    print(f"ERROR: Failed to download {relative_path}")
+                                    raise Exception(f"Download failed for {relative_path}. Script execution stopped.")
+                                
+                                mark_file_partially_downloaded(relative_path, tree_file_path, verbose)
+                                if verbose:
+                                    print(f"    ✓ Downloaded: {relative_path}")
+                            
+                            # Upload to Yandex Disk if destination_path and oauth_token provided
+                            if destination_path and oauth_token:
+                                clean_relative_path = relative_path.lstrip('/')
+                                if destination_path.endswith('/'):
+                                    full_destination = f"{destination_path}{clean_relative_path}"
+                                else:
+                                    full_destination = f"{destination_path}/{clean_relative_path}"
+                                
+                                if verbose:
+                                    print(f"    Uploading {relative_path} to {full_destination}...")
+                                
+                                # Create folder structure
+                                if len(path_parts) > 1:
+                                    folder_path_for_upload = '/'.join(path_parts[:-1])
+                                    folder_path_for_upload = folder_path_for_upload.lstrip('/')
+                                    create_folder_structure(destination_path, folder_path_for_upload, 
+                                                           oauth_token, verbose)
+                                
+                                if not upload_to_yandex_disk(local_path, full_destination, oauth_token, 
+                                                           verbose, use_web_interface=False, page=page):
+                                    print(f"ERROR: Failed to upload {relative_path}")
+                                    raise Exception(f"Upload failed for {relative_path}. Script execution stopped.")
+                                
+                                mark_file_downloaded(relative_path, tree_file_path, verbose)
+                                if verbose:
+                                    print(f"    ✓ Uploaded: {relative_path}")
+                                
+                                # Delete local file after successful upload
+                                try:
+                                    os.remove(local_path)
+                                    if verbose:
+                                        print(f"    Deleted local file: {local_path}")
+                                except Exception as e:
+                                    if verbose:
+                                        print(f"    Warning: Could not delete local file: {e}")
+                            else:
+                                if verbose:
+                                    print(f"    Note: Upload skipped (no destination_path or oauth_token)")
+                            
+                            # Continue to next file (don't add to items list)
+                            continue
+                        except Exception as download_error:
+                            print(f"ERROR: Failed to process {relative_path}: {download_error}")
+                            raise  # Re-raise to stop execution
+                    
+                    # Original code: add to items list if not downloading immediately
+                    if verbose:
+                        print(f"    Adding video to items list: {relative_path} -> {full_url[:100]}...")
+                    
+                    items.append({
+                        'name': name,
+                        'download_url': full_url,
+                        'order': file_idx,
+                        'relative_path': relative_path
+                    })
+                    file_idx += 1
+                    
+                    if verbose:
+                        print(f"    ✓ Successfully added video to list: {relative_path}")
                 
-                # Original code: add to items list if not downloading immediately
-                if verbose:
-                    print(f"    Adding video to items list: {relative_path} -> {full_url[:100]}...")
-                
-                items.append({
-                    'name': name,
-                    'download_url': full_url,
-                    'order': file_idx,
-                    'relative_path': relative_path
-                })
-                file_idx += 1
-                
-                if verbose:
-                    print(f"    ✓ Successfully added video to list: {relative_path}")
+                # Handle case when href is not found
+                if 'href' not in locals() or not href:
+                    if verbose:
+                        print(f"    ERROR: No download URL found")
+                        print(f"    Stopping execution: cannot proceed without download URL")
+                    raise Exception("Cannot find download URL. Script execution stopped.")
             except Exception as e:
                 error_str = str(e)
                 # If we have href but got an error, try to add the file anyway (context might be destroyed but data is saved)
@@ -1072,6 +1111,311 @@ def parse_folder_contents(page, folder_url: str, folder_path: str, verbose: bool
             raise Exception(f"Parsing error: {e}. Script execution stopped.")
     
     return items
+
+
+def process_videos_sequentially(page, folder_url: str, folder_path: str, verbose: bool,
+                               cache_dir: str, tree_file_path: str,
+                               destination_path: str = None, oauth_token: str = None) -> None:
+    """
+    Simplified sequential processing: find first video, download, upload, move to next.
+    No pre-parsing - just process one by one.
+    
+    Args:
+        page: Playwright page instance
+        folder_url: URL of the folder to process
+        folder_path: Relative path of the folder
+        verbose: Enable verbose output
+        cache_dir: Local cache directory for downloads
+        tree_file_path: Path to tree.md file
+        destination_path: Yandex Disk destination path (optional)
+        oauth_token: Yandex Disk OAuth token (optional)
+    """
+    # Navigate to folder
+    if verbose:
+        print(f"  Processing folder: {folder_path}")
+    
+    try:
+        page.goto(folder_url, wait_until='domcontentloaded', timeout=60000)
+        page.wait_for_timeout(3000)
+    except Exception as e:
+        if verbose:
+            print(f"  Error navigating to folder: {e}")
+        raise
+    
+    # Function to get all file elements
+    def get_elements():
+        selectors = [
+            '[data-file-name]',
+            '[data-resource-name]',
+            '[data-name]',
+            'a[href*="/d/"]',
+            '.listing-item',
+            '.listing-item_type_file'
+        ]
+        all_elements = []
+        for selector in selectors:
+            try:
+                elements = page.query_selector_all(selector)
+                all_elements.extend(elements)
+            except:
+                continue
+        return all_elements
+    
+    # Process videos one by one
+    processed_count = 0
+    while True:
+        # Get current list of elements
+        all_elements = get_elements()
+        
+        # Find first video file that hasn't been processed
+        video_element = None
+        video_name = None
+        video_href = None
+        
+        for element in all_elements:
+            try:
+                # Get name
+                name = (element.get_attribute('data-file-name') or 
+                       element.get_attribute('data-resource-name') or
+                       element.get_attribute('data-name') or
+                       element.get_attribute('title') or
+                       element.get_attribute('aria-label') or
+                       element.inner_text() or
+                       element.text_content())
+                
+                if not name:
+                    continue
+                
+                # Check if it's a video file
+                if not any(name.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
+                    continue
+                
+                # Build relative path
+                relative_path = f"{folder_path}/{name}".lstrip('/')
+                
+                # Check if already fully downloaded - if yes, skip this one and continue to next
+                is_fully_downloaded, _ = is_file_downloaded(relative_path, tree_file_path)
+                if is_fully_downloaded:
+                    if verbose:
+                        print(f"    Skipping {relative_path} - already fully downloaded")
+                    # Continue to next element, don't break
+                    continue
+                
+                # Found a video to process (not fully downloaded)
+                video_element = element
+                video_name = name
+                break
+                
+            except Exception as e:
+                if verbose:
+                    print(f"    Warning: Error checking element: {e}")
+                continue
+        
+        # If no video found, we're done
+        if not video_element or not video_name:
+            if verbose:
+                print(f"  No more videos to process in {folder_path}")
+            break
+        
+        relative_path = f"{folder_path}/{video_name}".lstrip('/')
+        
+        if verbose:
+            print(f"\n  Processing video {processed_count + 1}: {relative_path}")
+        
+        # Ensure file is in tree.md (add if not present)
+        try:
+            with open(tree_file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Check if file is already in tree.md
+            if relative_path not in content:
+                # Add file to tree.md
+                import re
+                # Find the "## Файлы" section
+                files_section_match = re.search(r'## Файлы\n\n', content)
+                if files_section_match:
+                    insert_pos = files_section_match.end()
+                    new_line = f"- [ ] `{relative_path}`\n"
+                    content = content[:insert_pos] + new_line + content[insert_pos:]
+                    
+                    with open(tree_file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    if verbose:
+                        print(f"    Added {relative_path} to tree.md")
+        except Exception as e:
+            if verbose:
+                print(f"    Warning: Could not update tree.md: {e}")
+        
+        # Get download URL for this video
+        try:
+            # Try to get href from element
+            href = None
+            
+            # Strategy 1: Direct href attribute
+            try:
+                href = video_element.get_attribute('href')
+                if href and ('streaming.disk.yandex' in href or '/d/' in href):
+                    if verbose:
+                        print(f"    Found href: {href[:100]}...")
+            except:
+                pass
+            
+            # Strategy 2: Click to get streaming URL
+            if not href:
+                try:
+                    video_urls = []
+                    response_urls = []
+                    page_url_before = page.url
+                    
+                    def handle_request(request):
+                        url = request.url
+                        if 'streaming.disk.yandex.net' in url or 'streaming.disk.yandex.ru' in url:
+                            if '/hls/' in url or url.endswith('.m3u8'):
+                                if url not in video_urls:
+                                    video_urls.append(url)
+                                    if verbose:
+                                        print(f"    Captured streaming URL (request): {url[:100]}...")
+                    
+                    def handle_response(response):
+                        url = response.url
+                        if 'streaming.disk.yandex.net' in url or 'streaming.disk.yandex.ru' in url:
+                            if '/hls/' in url or url.endswith('.m3u8'):
+                                if url not in response_urls:
+                                    response_urls.append(url)
+                                    if verbose:
+                                        print(f"    Captured streaming URL (response): {url[:100]}...")
+                    
+                    page.on('request', handle_request)
+                    page.on('response', handle_response)
+                    
+                    video_element.scroll_into_view_if_needed()
+                    page.wait_for_timeout(500)
+                    video_element.click(timeout=10000)
+                    page.wait_for_timeout(5000)
+                    
+                    if video_urls:
+                        href = video_urls[0]
+                        if verbose:
+                            print(f"    ✓ Using captured streaming URL: {href[:100]}...")
+                    elif response_urls:
+                        href = response_urls[0]
+                        if verbose:
+                            print(f"    ✓ Using captured streaming URL (response): {href[:100]}...")
+                    
+                    # Navigate back
+                    try:
+                        page.goto(page_url_before, wait_until='domcontentloaded', timeout=30000)
+                        page.wait_for_timeout(2000)
+                    except:
+                        pass
+                        
+                except Exception as e:
+                    if verbose:
+                        print(f"    Warning: Could not get URL by clicking: {e}")
+            
+            if not href:
+                print(f"ERROR: Could not find download URL for {relative_path}")
+                raise Exception(f"Cannot find download URL for {relative_path}. Script execution stopped.")
+            
+            # Construct full URL
+            if href.startswith('/'):
+                if 'disk.yandex.ru' in folder_url or 'disk.yandex.ru' in href:
+                    full_url = f"https://disk.yandex.ru{href}"
+                else:
+                    full_url = f"https://yadi.sk{href}"
+            elif href.startswith('http'):
+                full_url = href
+            else:
+                print(f"ERROR: Invalid href format for {relative_path}")
+                raise Exception(f"Invalid href format. Script execution stopped.")
+            
+            # Build local path
+            path_parts = [part.strip().replace('\n', ' ').replace('\r', ' ') 
+                         for part in relative_path.split('/') if part.strip()]
+            sanitized_parts = [sanitize_folder_name(part) if i < len(path_parts) - 1 
+                              else sanitize_filename(part) 
+                              for i, part in enumerate(path_parts)]
+            
+            if len(path_parts) > 1:
+                folder_parts = sanitized_parts[:-1]
+                local_folder_path = os.path.join(cache_dir, *folder_parts)
+                os.makedirs(local_folder_path, exist_ok=True)
+            
+            local_path = os.path.join(cache_dir, *sanitized_parts)
+            
+            # Check if already downloaded
+            is_fully_downloaded, is_partially_downloaded = is_file_downloaded(
+                relative_path, tree_file_path)
+            
+            if is_fully_downloaded:
+                if verbose:
+                    print(f"    Skipping {relative_path} - already fully downloaded")
+                processed_count += 1
+                continue
+            
+            # Download video
+            if not is_partially_downloaded or not os.path.exists(local_path):
+                if verbose:
+                    print(f"    Downloading {relative_path}...")
+                if not download_video(full_url, local_path, verbose, page):
+                    print(f"ERROR: Failed to download {relative_path}")
+                    raise Exception(f"Download failed for {relative_path}. Script execution stopped.")
+                
+                mark_file_partially_downloaded(relative_path, tree_file_path, verbose)
+                if verbose:
+                    print(f"    ✓ Downloaded: {relative_path}")
+            
+            # Upload to Yandex Disk if destination_path and oauth_token provided
+            if destination_path and oauth_token:
+                clean_relative_path = relative_path.lstrip('/')
+                if destination_path.endswith('/'):
+                    full_destination = f"{destination_path}{clean_relative_path}"
+                else:
+                    full_destination = f"{destination_path}/{clean_relative_path}"
+                
+                if verbose:
+                    print(f"    Uploading {relative_path} to {full_destination}...")
+                
+                # Create folder structure
+                if len(path_parts) > 1:
+                    folder_path_for_upload = '/'.join(path_parts[:-1])
+                    folder_path_for_upload = folder_path_for_upload.lstrip('/')
+                    create_folder_structure(destination_path, folder_path_for_upload, 
+                                           oauth_token, verbose)
+                
+                if not upload_to_yandex_disk(local_path, full_destination, oauth_token, 
+                                           verbose, use_web_interface=False, page=page):
+                    print(f"ERROR: Failed to upload {relative_path}")
+                    raise Exception(f"Upload failed for {relative_path}. Script execution stopped.")
+                
+                mark_file_downloaded(relative_path, tree_file_path, verbose)
+                if verbose:
+                    print(f"    ✓ Uploaded: {relative_path}")
+                
+                # Delete local file after successful upload
+                try:
+                    os.remove(local_path)
+                    if verbose:
+                        print(f"    Deleted local file: {local_path}")
+                except Exception as e:
+                    if verbose:
+                        print(f"    Warning: Could not delete local file: {e}")
+            else:
+                if verbose:
+                    print(f"    Note: Upload skipped (no destination_path or oauth_token)")
+            
+            processed_count += 1
+            
+            # After successful processing, wait a bit and re-query elements
+            # This ensures we get fresh list for next iteration
+            page.wait_for_timeout(1000)
+            
+        except Exception as e:
+            print(f"ERROR: Failed to process {relative_path if 'relative_path' in locals() else 'video'}: {e}")
+            raise
+    
+    if verbose:
+        print(f"  Processed {processed_count} video(s) from {folder_path}")
 
 
 def parse_public_folder(public_url: str, base_path: str = "", verbose: bool = False, browser=None, context=None, page=None, playwright_instance=None, test_mode: bool = False, processed_folder_urls: set = None,
@@ -2729,36 +3073,171 @@ if __name__ == '__main__':
                 # Continue to processing section below (skip normal parsing)
                 # video_files is already set, so we'll skip the else block
         else:
-            # Normal parsing mode
+            # Simplified sequential processing mode
             try:
                 if args.verbose:
-                    print("Parsing public folder...")
+                    print("Starting sequential video processing...")
                 
-                # Get paths and tokens (will be set later if not in parse-only mode)
+                # Initialize browser
+                from playwright.sync_api import sync_playwright
+                playwright_instance = sync_playwright().start()
+                
+                # Try to use system Chrome
+                try:
+                    import shutil
+                    chrome_paths = [
+                        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                        '/usr/bin/google-chrome',
+                        '/usr/bin/chromium',
+                        shutil.which('google-chrome'),
+                        shutil.which('chromium'),
+                        shutil.which('chromium-browser'),
+                    ]
+                    chrome_executable = None
+                    for path in chrome_paths:
+                        if path and os.path.exists(path):
+                            chrome_executable = path
+                            if args.verbose:
+                                print(f"Using system browser: {path}")
+                            break
+                    
+                    browser = playwright_instance.chromium.launch(
+                        headless=False,
+                        executable_path=chrome_executable,
+                        args=[
+                            '--enable-features=VaapiVideoDecoder',
+                            '--use-gl=egl',
+                            '--enable-hardware-acceleration',
+                        ]
+                    )
+                except Exception as e:
+                    if args.verbose:
+                        print(f"Could not use system Chrome, using Playwright Chromium: {e}")
+                    browser = playwright_instance.chromium.launch(headless=False)
+                
+                context = browser.new_context(
+                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    viewport={'width': 1920, 'height': 1080},
+                    java_script_enabled=True,
+                )
+                page = context.new_page()
+                
+                # Navigate to root folder
+                page.goto(public_folder_url, wait_until='domcontentloaded', timeout=60000)
+                page.wait_for_timeout(3000)
+                
+                # Handle captcha if present
+                captcha_selectors = [
+                    'iframe[src*="smartcaptcha"]',
+                    '.captcha',
+                    '#captcha',
+                    '[class*="captcha"]'
+                ]
+                
+                captcha_solved = False
+                while not captcha_solved:
+                    captcha_found = False
+                    for selector in captcha_selectors:
+                        try:
+                            elements = page.query_selector_all(selector)
+                            if elements and len(elements) > 0:
+                                captcha_found = True
+                                break
+                        except:
+                            continue
+                    
+                    if captcha_found:
+                        print("\n" + "="*60)
+                        print("CAPTCHA DETECTED!")
+                        print("Please solve the captcha in the browser window.")
+                        print("After solving, press ENTER to continue...")
+                        print("="*60 + "\n")
+                        input("Press ENTER after solving captcha...")
+                        page.wait_for_timeout(2000)
+                    else:
+                        captcha_solved = True
+                
+                # Get paths
                 script_dir = os.path.dirname(os.path.abspath(__file__))
-                tree_file_path_for_parse = os.path.join(script_dir, 'tree.md')
-                cache_dir_for_parse = os.path.join(script_dir, 'videos')
+                tree_file_path = os.path.join(script_dir, 'tree.md')
+                cache_dir = os.path.join(script_dir, 'videos')
+                os.makedirs(cache_dir, exist_ok=True)
                 
-                # Enable immediate download/upload (unless parse-only mode)
-                download_immediately = not args.parse_only
+                # Initialize tree.md if it doesn't exist
+                if not os.path.exists(tree_file_path):
+                    with open(tree_file_path, 'w', encoding='utf-8') as f:
+                        f.write("# Структура папок и файлов\n\n")
+                        f.write("```\n")
+                        f.write("└── /\n")
+                        f.write("```\n\n")
+                        f.write("## Статус загрузки\n\n")
+                        f.write("- ✓ или [x] = файл полностью загружен (скачан и залит на Яндекс Диск)\n")
+                        f.write("- [p] = файл загружен частично (скачан на компьютер, но не залит на Яндекс Диск)\n")
+                        f.write("- [ ] = файл не загружен\n\n")
+                        f.write("## Файлы\n\n")
+                    if args.verbose:
+                        print(f"Created initial tree.md file: {tree_file_path}")
                 
-                items, folder_info, browser, context, page, playwright_instance = parse_public_folder(
-                    public_folder_url, "", args.verbose, 
-                    test_mode=args.test, 
-                    processed_folder_urls=set(),
-                    cache_dir=cache_dir_for_parse if download_immediately else None,
-                    tree_file_path=tree_file_path_for_parse if download_immediately else None,
-                    destination_path=destination_path if download_immediately else None,
-                    oauth_token=oauth_token if download_immediately else None,
-                    download_immediately=download_immediately
+                # Process videos sequentially (no pre-parsing)
+                if args.parse_only:
+                    print("Parse-only mode not supported with sequential processing.")
+                    print("Sequential processing always downloads immediately.")
+                    sys.exit(EXIT_INVALID_ARGS)
+                
+                # Process videos from root folder
+                print("\nStarting sequential video processing...")
+                print("Processing videos one by one: find → download → upload → next\n")
+                process_videos_sequentially(
+                    page, public_folder_url, "", args.verbose,
+                    cache_dir, tree_file_path,
+                    destination_path, oauth_token
                 )
                 
-                # Filter video files (will be empty if download_immediately=True)
-                video_files = filter_video_files(items)
+                # Cleanup
+                if context:
+                    try:
+                        context.close()
+                    except:
+                        pass
+                if browser:
+                    try:
+                        browser.close()
+                    except:
+                        pass
+                if playwright_instance:
+                    try:
+                        playwright_instance.stop()
+                    except:
+                        pass
+                
+                print("\nSequential processing completed successfully!")
+                sys.exit(EXIT_SUCCESS)
+                
             except Exception as e:
-                print(f"Error during parsing: {e}")
+                print(f"Error during processing: {e}")
+                # Cleanup on error
+                if 'context' in locals() and context:
+                    try:
+                        context.close()
+                    except:
+                        pass
+                if 'browser' in locals() and browser:
+                    try:
+                        browser.close()
+                    except:
+                        pass
+                if 'playwright_instance' in locals() and playwright_instance:
+                    try:
+                        playwright_instance.stop()
+                    except:
+                        pass
                 sys.exit(EXIT_ERROR)
             
+            # Sequential processing is complete, exit
+            # (No need for further processing - everything is done in process_videos_sequentially)
+        
+        # Code below is only for --use-tree mode (upload-only)
+        if args.use_tree:
             # Filter by folder if specified
             if args.folder:
                 folder_name = args.folder
