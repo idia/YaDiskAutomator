@@ -1240,7 +1240,31 @@ def process_videos_sequentially(page, folder_url: str, folder_path: str, verbose
                 
                 # Check if it's a video file (after cleaning)
                 name_normalized = name.lower().strip()
-                if not any(name_normalized.endswith(ext) for ext in VIDEO_EXTENSIONS):
+                
+                # First, try standard check (for normal display format)
+                is_video = any(name_normalized.endswith(ext) for ext in VIDEO_EXTENSIONS)
+                clean_name = name  # Default to original name
+                
+                # If standard check failed, try to extract clean name (for display format with date/size)
+                # Pattern: filename.extDD.MM.YYYYHH:MMsize
+                # Example: "0. Введение в курс.mp429.05.202410:053,67 ГБ"
+                if not is_video:
+                    for ext in VIDEO_EXTENSIONS:
+                        ext_lower = ext.lower()
+                        if ext_lower in name_normalized:
+                            # Find the position of extension
+                            ext_pos = name_normalized.find(ext_lower)
+                            if ext_pos != -1:
+                                # Extract everything up to and including the extension
+                                clean_name = name[:ext_pos + len(ext)]
+                                # Check if clean name ends with extension
+                                if clean_name.lower().endswith(ext_lower):
+                                    is_video = True
+                                    if verbose:
+                                        print(f"    DEBUG: Extracted clean name from '{name}' -> '{clean_name}'")
+                                    break
+                
+                if not is_video:
                     skipped_not_video += 1
                     if verbose:
                         print(f"    DEBUG: Non-video file: {name}")
@@ -1248,8 +1272,8 @@ def process_videos_sequentially(page, folder_url: str, folder_path: str, verbose
                 
                 video_files_found += 1
                 
-                # Build relative path
-                relative_path = f"{folder_path}/{name}".lstrip('/')
+                # Build relative path using clean_name (which equals name if no extraction was needed)
+                relative_path = f"{folder_path}/{clean_name}".lstrip('/')
                 
                 if verbose:
                     print(f"    DEBUG: Found video file: {relative_path}")
