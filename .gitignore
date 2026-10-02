@@ -55,6 +55,8 @@ Thumbs.db
 # Project specific
 # Downloaded videos cache directory
 videos/
+2upload/
+uploaded/
 *.mp4
 *.avi
 *.mkv
@@ -66,3 +68,7 @@ videos/
 *.3gp
 *.ogv
 
+
+# Doppler
+.doppler/
+.doppler_token
